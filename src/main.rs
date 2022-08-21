@@ -260,10 +260,7 @@ fn main() {
         panic!("no args");
     }
     if args.len() == 1 {
-        match gui::gui() {
-            Ok(_) => {},
-            Err(_) => print_args(&args),
-        }
+        print_args(&args);
     }
     match args
         .get(1)
