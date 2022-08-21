@@ -256,7 +256,6 @@ impl SafeReadWrite {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    println!("{:?}", args);
     if args.len() == 0 {
         panic!("no args");
     }
