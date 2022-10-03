@@ -19,6 +19,7 @@ enum SafeReadWritePacket {
     ResendRequest,
     End,
 }
+use SafeReadWritePacket::*;
 
 struct SafeReadWrite {
     socket: UdpSocket,
@@ -53,7 +54,7 @@ impl SafeReadWrite {
     }
 
     pub fn write_flush_safe(&mut self, buf: &[u8], flush: bool) -> Result<(), Error> {
-        self.internal_write_safe(buf, SafeReadWritePacket::Write, flush, false)
+        self.internal_write_safe(buf, Write, flush, false)
     }
 
     pub fn read_safe(&mut self, buf: &[u8]) -> Result<(Vec<u8>, usize), Error> {
@@ -83,7 +84,7 @@ impl SafeReadWrite {
                     let id = u16::from_be_bytes([buf[0], buf[1]]);
                     if id <= self.packet_count_in as u16 {
                         self.socket
-                            .send(&[buf[0], buf[1], SafeReadWritePacket::Ack as u8])
+                            .send(&[buf[0], buf[1], Ack as u8])
                             .expect("send error");
                     }
                     if id == self.packet_count_in as u16 {
@@ -107,10 +108,10 @@ impl SafeReadWrite {
                         // ask to resend, then do nothing
                         let id = (self.packet_count_in as u16).to_be_bytes();
                         self.socket
-                            .send(&[id[0], id[1], SafeReadWritePacket::ResendRequest as u8])
+                            .send(&[id[0], id[1], ResendRequest as u8])
                             .expect("send error");
                     }
-                    if buf[2] == SafeReadWritePacket::End as u8 {
+                    if buf[2] == End as u8 {
                         return Ok((vec![], 0));
                     }
                 }
@@ -125,7 +126,7 @@ impl SafeReadWrite {
     }
 
     pub fn end(mut self) -> UdpSocket {
-        let _ = self.internal_write_safe(&mut [], SafeReadWritePacket::End, true, true);
+        let _ = self.internal_write_safe(&mut [], End, true, true);
 
         self.socket
     }
@@ -188,7 +189,7 @@ impl SafeReadWrite {
                     if x != 3 {
                         continue;
                     }
-                    if buf[2] == SafeReadWritePacket::Ack as u8 {
+                    if buf[2] == Ack as u8 {
                         let n = u16::from_be_bytes([buf[0], buf[1]]);
                         self.last_transmitted.remove(&n);
                         if n == idn {
@@ -200,7 +201,7 @@ impl SafeReadWrite {
                                                            // previous ones must be as well.
                         }
                     }
-                    if buf[2] == SafeReadWritePacket::ResendRequest as u8 {
+                    if buf[2] == ResendRequest as u8 {
                         let mut n = u16::from_be_bytes([buf[0], buf[1]]);
                         if !is_catching_up && !env::var("QFT_HIDE_DROPS").is_ok() {
                             println!("\r\x1b[KA packet dropped: {}", &n);
@@ -393,6 +394,7 @@ pub fn sender<F: Fn(f32)>(args: &Vec<String>, on_progress: F) {
     sc.write_safe(&len.to_be_bytes())
         .expect("unable to send file length");
     println!("Length: {}", &len);
+    let mut time_elapsed = unix_millis();
     loop {
         let read = file.read(&mut buf).expect("file read error");
         if read == 0 && !env::var("QFT_STREAM").is_ok() {
@@ -405,8 +407,10 @@ pub fn sender<F: Fn(f32)>(args: &Vec<String>, on_progress: F) {
         sc.write_safe(&buf[..read]).expect("send error");
         bytes_sent += read as u64;
         if (bytes_sent % (br * 20) as u64) < (br as u64) {
-            print!("\r\x1b[KSent {} bytes", bytes_sent);
+            print!("\r\x1b[KSent {} bytes; Speed: {} kb/s",
+               bytes_sent, br as usize * 20 / (unix_millis() - time_elapsed) as usize );
             stdout().flush().unwrap();
+            time_elapsed = unix_millis();
         }
         if unix_millis() - last_update > 100 {
             on_progress((bytes_sent + begin) as f32 / len as f32);
@@ -459,6 +463,7 @@ pub fn receiver<F: Fn(f32)>(args: &Vec<String>, on_progress: F) {
     ]);
     file.set_len(len).expect("unable to set file length");
     println!("Length: {}", &len);
+    let mut time_elapsed = unix_millis();
     loop {
         let (mbuf, amount) = sc.read_safe(buf).expect("read error");
         let buf = &mbuf.leak()[..amount];
@@ -472,8 +477,10 @@ pub fn receiver<F: Fn(f32)>(args: &Vec<String>, on_progress: F) {
         file.flush().expect("file flush error");
         bytes_received += amount as u64;
         if (bytes_received % (br * 20) as u64) < (br as u64) {
-            print!("\r\x1b[KReceived {} bytes", bytes_received);
+            print!("\r\x1b[KReceived {} bytes; Speed: {} kb/s",
+                   bytes_received, br as usize * 20 / (unix_millis() - time_elapsed) as usize );
             stdout().flush().unwrap();
+            time_elapsed = unix_millis();
         }
         if unix_millis() - last_update > 100 {
             on_progress((bytes_received + begin) as f32 / len as f32);
